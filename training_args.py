@@ -36,10 +36,14 @@ class TrainingArguments(Arguments):
     def __post_init__(self):
         """尽量不要在这里创建新的属性，我们希望asdict只包含上面的属性"""
         self.work_dir = os.path.expanduser(self.work_dir)
-        assert (self.max_epochs > 0) ^ (self.max_iters > 0), "Please specify either max_epochs or max_iters.(两者之一)"
+
+        if self.max_iters > 0:
+            logger.info("max_iters is given, it will override any value given in max_epochs.")
+
         if self.log_period % self.grad_accum != 0:
             logger.warning(f"log_period={self.log_period} is not divisible by grad_accum={self.grad_accum}, "
                            "which may cause inaccurate logging information.")
+            
         if self.metric_window_size % self.grad_accum != 0:
             logger.warning(f"metric_window_size={self.metric_window_size} is not divisible by grad_accum={self.grad_accum}, "
                            "which may cause inaccurate metrics.")

@@ -164,9 +164,10 @@ def is_master() -> bool:
     return get_rank() == 0
 
 def init_distributed(timeout: int = 1200) -> Tuple[int]:
-    local_rank = get_local_rank()
-    world_size = get_world_size()
-    rank = get_rank()
+    # torchrun
+    rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    local_rank = int(os.environ["LOCAL_RANK"])
 
     torch.cuda.set_device(local_rank)
     print(f"| distributed init (rank {rank})", flush=True)

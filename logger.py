@@ -7,7 +7,7 @@ from typing import Optional
 logger_initialized = {}
 
 
-def setup_logger(name: Optional[str] = None, output_dir: Optional[str] = None, rank: int = -1,
+def setup_logger(name: Optional[str] = None, output_dir: Optional[str] = None, rank: int = 0,
                  log_level: int = logging.INFO) -> logging.Logger:
     """Initialize the logger.
 

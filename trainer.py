@@ -83,6 +83,13 @@ class Trainer:
         return self.cur_iter // self.epoch_len
     
     @property
+    def step_condition(self) -> bool:
+        """用于梯度累加的时候判断是否更新梯度step, 能被整除以及epoch提前结束"""
+        assert self.args.train_by_epoch, "step_condition is only available when training by epoch."
+        i = self.inner_iter + 1
+        return (i % self.args.grad_accum == 0) or (i == self.epoch_len)
+
+    @property
     def model_or_module(self) -> nn.Module:
         """The model not wrapped by :class:`DistributedDataParallel`."""
         if isinstance(self.model, DistributedDataParallel):
@@ -104,7 +111,7 @@ class Trainer:
         # setup the root logger of the `cpu` library to show
         # the log messages generated from this library
         #! 不清楚这里为什么不返回logger，需要测试一下
-        # setup_logger("cpu", output_dir=self.args.work_dir, rank=get_rank())
+        setup_logger("cpu", output_dir=self.args.work_dir, rank=get_rank())
 
         logger.info("Environment info:\n" + collect_env())
 
@@ -249,12 +256,11 @@ class Trainer:
 
         # 混合精度+梯度累加+梯度裁剪+分布式训练
         # 经过改动之后可能不适用于train_by_iter的训练
-        i = self.inner_iter + 1
         scale_factor = self.args.grad_accum
-        if i >= (self.epoch_len // self.args.grad_accum) * self.args.grad_accum + 1:
+        if self.inner_iter >= (self.epoch_len // self.args.grad_accum) * self.args.grad_accum:
             scale_factor = self.epoch_len % self.args.grad_accum
 
-        my_context = self.model.no_sync if is_distributed() and i % self.args.grad_accum != 0 else nullcontext
+        my_context = self.model.no_sync if is_distributed() and not self.step_condition else nullcontext
         with my_context():
             with autocast(enabled=self.args.enable_amp):
                 if self.args.unpack_batch_dict:
@@ -274,7 +280,7 @@ class Trainer:
         ##########################
         # 3. Calculate gradients #
         ##########################
-        if (i % self.args.grad_accum == 0) or (i == self.epoch_len):
+        if self.step_condition:
             if self.args.clip_grad_norm > 0:
                 self._grad_scaler.unscale_(self.optimizer)
                 clip_grad_norm_(self.model.parameters(), self.args.clip_grad_norm)
@@ -311,19 +317,18 @@ class Trainer:
 
         self._call_hooks("before_train")
         for self.cur_iter in range(self.start_iter, self.max_iters):
-            if self.args.train_by_epoch and self.cur_iter % self.epoch_len == 0:
+            if self.args.train_by_epoch and self.inner_iter == 0:
                 self._call_hooks("before_epoch")
             self._call_hooks("before_iter")
             self.train_one_iter()
             # region 改动
             if self.args.train_by_epoch:
-                i = self.inner_iter + 1
-                if (i % self.args.grad_accum == 0) or (i == self.epoch_len):
+                if self.step_condition:
                     self._call_hooks("after_iter")
             else:
                 self._call_hooks("after_iter")
             # endregion
-            if self.args.train_by_epoch and (self.cur_iter + 1) % self.epoch_len == 0:
+            if self.args.train_by_epoch and (self.inner_iter + 1) == self.epoch_len:
                 self._call_hooks("after_epoch")
         self._call_hooks("after_train")
 
